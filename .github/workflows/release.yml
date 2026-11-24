@@ -1,0 +1,77 @@
+name: release
+
+# Push a tag like v0.1.0 -> builds the RPM, attaches it to a GitHub Release,
+# and publishes a dnf repository on GitHub Pages (https://arkadiese.github.io/cmdhelp/).
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    container: fedora:latest
+    steps:
+      - name: Tools
+        run: dnf -y install git python3 rpm-build createrepo_c
+      - uses: actions/checkout@v4
+      - name: Version
+        id: v
+        run: |
+          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then V="${GITHUB_REF_NAME#v}"; else V=$(sed -n 's/^__version__ = "\(.*\)"/\1/p' cmdhelp/__init__.py); fi
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+      - name: Smoke test
+        run: |
+          python3 -m cmdhelp -e 'tar -xzvf a.tgz -C /tmp' --no-color
+          python3 -m cmdhelp -s tcpdump -m min --no-color | head -5
+      - name: Build RPM
+        run: sh packaging/build_rpm.sh "${{ steps.v.outputs.version }}"
+      - name: Install test
+        run: |
+          dnf -y install dist/*.rpm
+          cmdhelp -e 'iptables -L -n -v' --no-color
+      - name: Build dnf repo
+        run: |
+          mkdir -p site/rpm
+          cp dist/*.rpm site/rpm/
+          createrepo_c site/rpm
+          cat > site/cmdhelp.repo <<'EOF'
+          [cmdhelp]
+          name=cmdhelp
+          baseurl=https://arkadiese.github.io/cmdhelp/rpm/
+          enabled=1
+          gpgcheck=0
+          repo_gpgcheck=0
+          metadata_expire=6h
+          EOF
+          sed -i 's/^ *//' site/cmdhelp.repo
+          cp README.md site/index.md
+      - name: GitHub Release
+        if: github.ref_type == 'tag'
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*.rpm
+            dist/cmdhelp.pyz
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

@@ -1,0 +1,79 @@
+# Ranked command list. Format: category: cmd cmd cmd ...
+# Order inside the file is the global rank (earlier = more common).
+# Sources: shell-history surveys (sudo/ls/cd/git/ssh dominate), StackOverflow/unix.SE tag volume,
+# sysadmin daily usage. At runtime, the user's own ~/.bash_history / ~/.zsh_history re-rank.
+nav: ls cd pwd
+priv: sudo su
+files: cat cp mv rm mkdir touch ln rmdir
+search: grep find locate which whereis
+view: less more head tail
+edit: vim vi nano
+remote: ssh scp rsync sftp ssh-keygen ssh-copy-id
+vcs: git
+text: echo printf awk sed sort uniq wc cut tr xargs tee
+perm: chmod chown chgrp umask
+archive: tar gzip gunzip zip unzip bzip2 xz zcat
+proc: ps top htop kill killall pkill pgrep nice renice nohup jobs bg fg
+disk: df du mount umount lsblk fdisk blkid
+net: ping curl wget ip ss netstat nslookup dig host traceroute
+service: systemctl journalctl service
+pkg: apt apt-get dnf yum rpm dpkg pip snap
+container: docker docker-compose podman kubectl
+sys: uname hostname uptime free date whoami id history clear exit man
+shell: alias export source env set unset type which watch time
+users: useradd usermod userdel passwd groupadd groups
+netsec: iptables tcpdump nmap nc firewall-cmd ufw nft
+files2: stat file diff cmp basename dirname realpath readlink tree
+text2: paste join comm column fold fmt nl rev tac split csplit expand unexpand
+compress2: 7z zstd lz4 bunzip2 unxz xzcat bzcat zgrep zless zdiff
+search2: rg fd ag ack fzf
+monitor: vmstat iostat mpstat sar dstat iotop iftop nload lsof strace ltrace pidstat glances
+sys2: dmesg lscpu lsmem lspci lsusb lsmod modprobe insmod rmmod sysctl ulimit hwclock timedatectl hostnamectl localectl
+boot: reboot shutdown poweroff halt init runlevel grub2-mkconfig update-grub
+sched: crontab at batch sleep timeout
+net2: ifconfig route arp ethtool nmcli iwconfig mtr whois telnet socat tracepath arping ip6tables ipset conntrack bridge iw nethogs
+dns: resolvectl systemd-resolve
+http: http openssl ab
+disk2: parted mkfs mkfs.ext4 mkfs.xfs fsck e2fsck tune2fs resize2fs xfs_growfs mkswap swapon swapoff sync dd losetup
+lvm: pvcreate pvs pvdisplay vgcreate vgs vgdisplay vgextend lvcreate lvs lvdisplay lvextend lvresize lvremove
+raid: mdadm smartctl hdparm badblocks
+text3: jq yq xmllint iconv dos2unix unix2dos base64 md5sum sha256sum sha1sum cksum hexdump xxd od strings
+editor2: emacs ed
+term: tmux screen script reset stty tput
+shell2: bash zsh sh exec eval read test true false yes seq expr bc let declare printenv chsh
+users2: who w last lastlog finger chage visudo newgrp gpasswd sudoedit
+security: gpg ssh-agent ssh-add sha512sum chattr lsattr getfacl setfacl semanage restorecon getenforce setenforce sestatus fail2ban-client auditctl ausearch aide
+logs: logger logrotate rsyslogd last lastb
+proc2: pstree pidof fuser killall5 at nohup disown wait chrt taskset ionice
+mem: free vmstat slabtop pmap
+time: cal ntpdate chronyc timedatectl
+pkg2: apt-cache dpkg-query yum-config-manager dnf5 zypper pacman brew flatpak npm gem cargo go pipx conda
+container2: docker-buildx buildah skopeo helm k9s minikube kind kubectx crictl ctr
+cloud: aws gcloud az terraform ansible ansible-playbook vagrant packer
+db: mysql mysqldump psql pg_dump pg_restore redis-cli sqlite3 mongo mongosh sqlplus rman
+web: nginx apache2ctl httpd apachectl certbot htpasswd
+mail: mail mailx sendmail postfix postqueue mutt swaks
+files3: install mktemp shred truncate fallocate rename mmv sponge
+find2: updatedb whatis apropos info tldr help
+transfer: ftp lftp aria2c rclone s3cmd nc ncat
+vpn: wg wg-quick openvpn ipsec
+virt: virsh virt-install qemu-img qemu-system-x86_64 vboxmanage
+dev: make gcc g++ cc ld gdb valgrind cmake python3 python node java javac perl ruby php
+vcs2: svn hg git-lfs gh
+power: upower powertop acpi
+audio: alsamixer amixer pactl aplay
+media: ffmpeg convert identify exiftool imagemagick youtube-dl yt-dlp
+nettools2: iperf iperf3 tshark wireshark ngrep hping3 netcat masscan
+security2: lynis rkhunter chkrootkit clamscan john hashcat hydra nikto sqlmap
+x: xdg-open xclip xsel xrandr startx
+misc: tee watch yes cowsay figlet neofetch screenfetch fortune
+sysinfo: dmidecode inxi hwinfo lshw sensors
+ns: unshare nsenter ip-netns chroot
+kernel: uname kexec dracut mkinitrd update-initramfs depmod
+fs: findmnt mountpoint quota edquota repquota exportfs showmount nfsstat
+selinux: chcon ls getsebool setsebool audit2allow
+systemd2: systemd-analyze systemd-run systemd-tmpfiles loginctl busctl coredumpctl
+text4: awk gawk mawk perl tr sed head
+archive2: cpio ar rpm2cpio unrar rar
+backup: borg restic duplicity rsnapshot
+perf: perf bpftrace sar stress stress-ng
