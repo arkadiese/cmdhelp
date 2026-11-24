@@ -1,10 +1,11 @@
 name: release
 
-# Push a tag like v0.1.0 -> builds the RPM, attaches it to a GitHub Release,
-# and publishes a dnf repository on GitHub Pages (https://arkadiese.github.io/cmdhelp/).
+# Publish a GitHub Release with a tag like v0.1.0 (web UI, or: gh release create v0.1.0 --generate-notes)
+# -> builds the RPM, attaches it + cmdhelp.pyz to that release,
+#    and publishes a dnf repository on GitHub Pages (https://arkadiese.github.io/cmdhelp/).
 on:
-  push:
-    tags: ["v*"]
+  release:
+    types: [published]
   workflow_dispatch:
 
 permissions:
@@ -27,7 +28,7 @@ jobs:
       - name: Version
         id: v
         run: |
-          if [ "${GITHUB_REF_TYPE}" = "tag" ]; then V="${GITHUB_REF_NAME#v}"; else V=$(sed -n 's/^__version__ = "\(.*\)"/\1/p' cmdhelp/__init__.py); fi
+          if [ "${{ github.event_name }}" = "release" ]; then V="${{ github.event.release.tag_name }}"; V="${V#v}"; else V=$(sed -n 's/^__version__ = "\(.*\)"/\1/p' cmdhelp/__init__.py); fi
           echo "version=$V" >> "$GITHUB_OUTPUT"
       - name: Smoke test
         run: |
@@ -56,9 +57,10 @@ jobs:
           sed -i 's/^ *//' site/cmdhelp.repo
           cp README.md site/index.md
       - name: GitHub Release
-        if: github.ref_type == 'tag'
+        if: github.event_name == 'release'
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ github.event.release.tag_name }}
           files: |
             dist/*.rpm
             dist/cmdhelp.pyz

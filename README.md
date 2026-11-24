@@ -14,7 +14,7 @@ sudo dnf install cmdhelp
 Or a single RPM without adding the repo:
 
 ```sh
-sudo dnf install https://github.com/arkadiese/cmdhelp/releases/latest/download/cmdhelp-0.1.0-1.noarch.rpm
+sudo dnf install https://github.com/arkadiese/cmdhelp/releases/download/v0.1.0/cmdhelp-0.1.0-1.noarch.rpm
 ```
 
 The package installs `/usr/bin/cmdhelp`, plus `/etc/profile.d/cmdhelp.sh`, which turns on the keybindings for interactive bash.
@@ -77,7 +77,8 @@ sh packaging/build_rpm.sh          # writes dist/cmdhelp-<ver>-1.noarch.rpm (nee
 
 ### Releasing
 
-Bump `__version__` in `cmdhelp/__init__.py`, then run `git tag vX.Y.Z && git push --tags`.
+Bump `__version__` in `cmdhelp/__init__.py`, push, then publish a GitHub Release tagged `vX.Y.Z`
+(Releases > Draft a new release, or `gh release create vX.Y.Z --generate-notes`).
 The GitHub Actions workflow then does the following:
 1. Builds and smoke-tests the RPM in a Fedora container.
 2. Attaches the RPM and the .pyz to a GitHub Release.
