@@ -35,6 +35,22 @@ class TokenizeTest(unittest.TestCase):
         self.assertEqual(cmds, ["ps", "grep", "echo"])
         self.assertEqual(seps, ["|", "&&"])
 
+    def test_operators_glued_to_words(self):
+        # shlex only splits these from Python 3.8 on; EL8 ships 3.6
+        self.assertEqual(tokenize("ps aux|grep x"), ["ps", "aux", "|", "grep", "x"])
+        self.assertEqual(tokenize("a;b&"), ["a", ";", "b", "&"])
+        self.assertEqual(tokenize("cmd &>/dev/null"), ["cmd", "&>", "/dev/null"])
+        self.assertEqual(tokenize("cmd >&2"), ["cmd", ">&2"])
+        self.assertEqual(tokenize("exec 3>&-"), ["exec", "3>&-"])
+        self.assertEqual(tokenize("cat <<<word"), ["cat", "<<<", "word"])
+
+    def test_quoting_rules(self):
+        self.assertEqual(tokenize("echo 'a|b'"), ["echo", "a|b"])           # no split inside quotes
+        self.assertEqual(tokenize('echo "say \\"hi\\""'), ["echo", 'say "hi"'])
+        self.assertEqual(tokenize("x\\ y"), ["x y"])
+        self.assertEqual(tokenize("a''b"), ["ab"])
+        self.assertEqual(tokenize("echo ''"), ["echo", ""])                  # empty quoted arg is kept
+
     def test_empty(self):
         self.assertEqual(tokenize(""), [])
         self.assertEqual(tokenize("   "), [])

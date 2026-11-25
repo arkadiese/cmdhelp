@@ -1,6 +1,5 @@
 """Explain a full command line token by token, in min / normal / verbose mode."""
 import re
-import shlex
 
 from .kb import PREFIX_CMDS
 
@@ -14,6 +13,7 @@ REDIR = {">": "redirect stdout to file (overwrite)", ">>": "append stdout to fil
          "<": "read stdin from file", "2>": "redirect stderr to file", "2>&1": "send stderr to wherever stdout goes",
          "&>": "redirect stdout+stderr to file", "2>/dev/null": "discard error messages", ">/dev/null": "discard output",
          "<<": "here-document", "<<<": "here-string"}
+REDIR_RE = re.compile(r"^(\d*(>>?|<|>\||<<<?)|&>>?)(&[\d-]+)?$|^\d*[<>]&[\d-]+$")
 PREFIX_TEXT = {"sudo": "run as root (or -u user)", "time": "measure run time", "nohup": "keep running after logout",
                "nice": "run with lower CPU priority", "ionice": "run with I/O priority", "watch": "re-run every 2s and show output",
                "env": "run with modified environment", "exec": "replace the shell with the command", "timeout": "kill after a time limit",
@@ -21,28 +21,80 @@ PREFIX_TEXT = {"sudo": "run as root (or -u user)", "time": "measure run time", "
                "builtin": "run a shell builtin", "chroot": "run in another root dir"}
 
 
-ESC_SEMI = "\x00SEMI\x00"
+# Longest operators first. Same behaviour on every Python version (shlex only splits
+# operators glued to words, like a|b or 2>/dev/null, from Python 3.8 on).
+OPERATORS = ("<<<", "&>>", "||", "&&", "|&", ";;", ">>", "<<", ">&", "<&", "&>", ">|", "|", "&", ";", "<", ">")
 
 
 def tokenize(line):
-    line = line.replace("\\;", ESC_SEMI)
-    try:
-        lex = shlex.shlex(line, posix=True, punctuation_chars="|&;<>")
-        lex.whitespace_split = True
-        toks = list(lex)
-    except ValueError:  # unterminated quote while typing
-        toks = line.split()
-    toks = [t.replace(ESC_SEMI, "\\;") for t in toks]
-    # re-glue redirections: 2 > file -> 2>, >& 1 -> >&1, 2 >& 1 -> 2>&1
-    out = []
-    for t in toks:
-        if out and out[-1].isdigit() and t[:1] in "<>" and len(out[-1]) == 1:
-            out[-1] += t
-        elif out and out[-1].endswith(">&") and t.isdigit():
-            out[-1] += t
-        else:
-            out.append(t)
-    return out
+    r"""Small POSIX-shell lexer: words (quotes removed, escapes resolved) and operator tokens.
+
+    Redirect fds are glued to their operator (2>, 2>&1, &>). find's \; is kept as the word \;
+    so it is not mistaken for a command separator. An unterminated quote (normal while typing)
+    falls back to a plain whitespace split.
+    """
+    toks, cur, have = [], [], False
+    i, n = 0, len(line)
+
+    def flush():
+        if have:
+            toks.append("".join(cur))
+        del cur[:]
+
+    while i < n:
+        c = line[i]
+        if c in " \t\n":
+            flush(); have = False
+            i += 1
+            continue
+        if c == "\\":
+            if i + 1 < n and line[i + 1] == ";":
+                cur.append("\\;")
+            elif i + 1 < n:
+                cur.append(line[i + 1])
+            have = True
+            i += 2
+            continue
+        if c == "'":
+            j = line.find("'", i + 1)
+            if j < 0:
+                return line.split()
+            cur.append(line[i + 1:j]); have = True
+            i = j + 1
+            continue
+        if c == '"':
+            j, buf = i + 1, []
+            while j < n and line[j] != '"':
+                if line[j] == "\\" and j + 1 < n and line[j + 1] in '"\\$`':
+                    buf.append(line[j + 1]); j += 2
+                else:
+                    buf.append(line[j]); j += 1
+            if j >= n:
+                return line.split()
+            cur.append("".join(buf)); have = True
+            i = j + 1
+            continue
+        op = next((o for o in OPERATORS if line.startswith(o, i)), None)
+        if op:
+            word = "".join(cur)
+            fd = ""
+            if have and word.isdigit() and op[0] in "<>":
+                fd = word                      # 2> 1>> 0<
+                del cur[:]; have = False
+            flush(); have = False
+            i += len(op)
+            if op in (">&", "<&"):              # >&2  2>&1  2>&-
+                k = i
+                while k < n and (line[k].isdigit() or line[k] == "-"):
+                    k += 1
+                op += line[i:k]
+                i = k
+            toks.append(fd + op)
+            continue
+        cur.append(c); have = True
+        i += 1
+    flush()
+    return toks
 
 
 def split_segments(tokens):
@@ -137,9 +189,10 @@ def explain_segment(kb, tokens, mode, man="sync"):
     first_positional = True
     while i < len(tokens):
         t = tokens[i]
-        if t in REDIR or re.match(r"^\d?>>?(&\d)?$", t) or t in ("<", "<<", "<<<"):
-            rows.append((t, "redir", REDIR.get(t, "redirection")))
-            if i + 1 < len(tokens) and t not in ("2>&1",):
+        if t in REDIR or REDIR_RE.match(t):
+            dup = re.search(r"[<>]&[\d-]+$", t)          # 2>&1, >&2, 3>&-: no separate target
+            rows.append((t, "redir", REDIR.get(t) or ("duplicate/close a file descriptor" if dup else "redirection")))
+            if i + 1 < len(tokens) and not dup:
                 i += 1
                 rows.append((tokens[i], "arg", "target"))
             i += 1
