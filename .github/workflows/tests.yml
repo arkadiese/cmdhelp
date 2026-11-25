@@ -29,13 +29,13 @@ jobs:
             image: python:3.12-slim
             setup: apt-get update -qq && apt-get install -y -qq zsh >/dev/null
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Install tools
         run: ${{ matrix.setup }}
       - name: Python version
         run: python3 -V
       - name: Unit tests
-        run: python3 -m unittest discover -s tests -t . -v
+        run: python3 tests/run_ci.py
       - name: Smoke test the CLI
         run: |
           python3 -m cmdhelp -V
