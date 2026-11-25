@@ -77,7 +77,7 @@ def _txt(f, mode):
     return f.get(mode) or f.get("normal") or ""
 
 
-def explain_segment(kb, tokens, mode):
+def explain_segment(kb, tokens, mode, man="sync"):
     """Return list of (token, kind, text) tuples."""
     rows = []
     i = 0
@@ -105,7 +105,7 @@ def explain_segment(kb, tokens, mode):
     if i >= len(tokens):
         return rows, None
     cmd = tokens[i].split("/")[-1]
-    entry = kb.get(cmd)
+    entry = kb.get(cmd, man=man)
     name_used = cmd
     i += 1
     # subcommand: git commit -> git-commit page
@@ -113,7 +113,7 @@ def explain_segment(kb, tokens, mode):
         sub = tokens[i]
         if kb.has(cmd + "-" + sub):
             rows.append((tokens[i - 1], "cmd", (kb.summary(cmd, mode) if mode != "min" else kb.summary(cmd, "min"))))
-            entry = kb.get(cmd + "-" + sub)
+            entry = kb.get(cmd + "-" + sub, man=man)
             name_used = cmd + "-" + sub
             rows.append((sub, "sub", entry["summary"][mode]))
             i += 1
@@ -126,13 +126,12 @@ def explain_segment(kb, tokens, mode):
         rows.append((tokens[i - 1], "cmd", entry["summary"][mode]))
     else:
         rows.append((tokens[i - 1], "cmd", "(unknown command)"))
-        for t in tokens[i:]:
-            rows.append((t, "arg", ""))
-        return rows, None
+        entry = {"flags": [], "subcommands": {}, "oldstyle": False}   # still explain redirects/args
+        name_used = None
 
     idx = FlagIndex(entry)
-    if name_used != cmd and kb.get(cmd):   # subcommand page: fall back to parent's global options
-        parent = FlagIndex(kb.get(cmd))
+    if name_used and name_used != cmd and kb.get(cmd, man=man):   # subcommand page: fall back to parent's global options
+        parent = FlagIndex(kb.get(cmd, man=man))
         for k, v in parent.by.items():
             idx.by.setdefault(k, v)
     first_positional = True
@@ -251,7 +250,7 @@ def _guess_arg(t, cmd=None):
     return "argument"
 
 
-def explain(kb, line, mode="normal"):
+def explain(kb, line, mode="normal", man="sync"):
     """Return dict: rows per segment + related pitfalls/combos for verbose mode."""
     toks = tokenize(line)
     result = {"segments": [], "pitfalls": [], "related": [], "see": []}
@@ -261,10 +260,10 @@ def explain(kb, line, mode="normal"):
             continue
         if not seg:
             continue
-        rows, name = explain_segment(kb, seg, mode)
+        rows, name = explain_segment(kb, seg, mode, man)
         result["segments"].append({"rows": rows, "cmd": name})
         if name:
-            e = kb.get(name)
+            e = kb.get(name, man=man)
             result["pitfalls"] += [(name, p) for p in e.get("pitfalls", [])]
             result["see"] += e.get("see", [])
             used = set(r[0] for r in rows if r[1] == "flag")
@@ -289,9 +288,9 @@ C = {"cmd": "\033[1;36m", "sub": "\033[1;36m", "flag": "\033[1;33m", "flag?": "\
      "dim": "\033[2m", "warn": "\033[1;31m", "r": "\033[0m", "b": "\033[1m"}
 
 
-def render_text(kb, line, mode="normal", color=True):
+def render_text(kb, line, mode="normal", color=True, man="sync"):
     c = C if color else {k: "" for k in C}
-    res = explain(kb, line, mode)
+    res = explain(kb, line, mode, man)
     out = []
     if mode == "min":
         parts = []
@@ -333,10 +332,10 @@ def render_text(kb, line, mode="normal", color=True):
     return "\n".join(out)
 
 
-def render_command(kb, name, mode="normal", color=True, limit=None):
+def render_command(kb, name, mode="normal", color=True, limit=None, man="sync"):
     """Cheat-sheet view of one command."""
     c = C if color else {k: "" for k in C}
-    e = kb.get(name)
+    e = kb.get(name, man=man)
     if not e:
         return "No entry for '%s'." % name
     out = ["%s%s%s  %s" % (c["cmd"], name, c["r"], e["summary"][mode]), ""]

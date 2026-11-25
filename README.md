@@ -17,8 +17,15 @@ Or a single RPM without adding the repo:
 sudo dnf install https://github.com/arkadiese/cmdhelp/releases/download/v0.1.0/cmdhelp-0.1.0-1.noarch.rpm
 ```
 
-The package installs `/usr/bin/cmdhelp`, plus `/etc/profile.d/cmdhelp.sh`, which turns on the keybindings for interactive bash.
-For zsh, add `source /usr/share/cmdhelp/cmdhelp.zsh` to `~/.zshrc`. To opt out for a user, run `export CMDHELP_DISABLE=1`.
+The package installs `/usr/bin/cmdhelp` and changes nobody's shell until they opt in:
+
+```sh
+cmdhelp --enable        # for your user: keybindings + ?? in new bash shells (cmdhelp --disable to undo)
+```
+
+- For zsh, also add `source /usr/share/cmdhelp/cmdhelp.zsh` to `~/.zshrc`.
+- An admin can enable it for every user with `sudo touch /etc/cmdhelp/enable-all`.
+- `CMDHELP_DISABLE=1` always wins.
 
 ### Anywhere else
 
@@ -33,7 +40,7 @@ For a server where you don't want to install anything, copy only `cmdhelp.pyz` (
 
 | Key / command | What it does |
 |---|---|
-| **Ctrl+Space** or **Alt+h** in bash/zsh | Opens the helper with whatever you already typed |
+| **Ctrl+Space**, **Alt+h** (or **Esc** then **h**), **Ctrl+X** then **h** in bash/zsh | Opens the helper with whatever you already typed. Ctrl+X h works in terminals that swallow the others (MobaXterm, PuTTY). |
 | `cmdhelp` | Opens the helper standalone (prints the chosen line) |
 | `?? <command line>` | Explains a command line token by token |
 | `??` (no args) | Explains your previous command |
@@ -63,7 +70,7 @@ Nothing is ever executed. The helper only edits your prompt line.
 |---|---|
 | Hand-curated entries | 41 core tools in depth: dnf, tar, gzip, gunzip, zip, unzip, xz, grep, awk, sed, find, xargs, sort, uniq, cut, cat, head, tail, wc, tr, tcpdump, iptables, ss, ip, curl, ssh, rsync, nc, nmap, dig, ls, ps, kill, systemctl, journalctl, chmod, chown, du, df, lsof, openssl. Every flag has 3 text levels, plus use cases and pitfalls drawn from the most-voted StackOverflow/unix.SE/ServerFault questions. |
 | tldr-pages (GitHub, CC-BY 4.0) | 6,830 commands with community-written use cases (common + linux pages) |
-| Your local man pages | Parsed on demand, so every option of any installed command gets a description. Cached in `~/.cache/cmdhelp`. |
+| Your local man pages | Parsed in a background thread the first time you use a command, so typing never waits on `man`. Cached in `~/.cache/cmdhelp`, and re-parsed when the man page changes (path + mtime) or the parser version changes. Best-effort: curated and tldr text always wins. |
 | Ranking | A list of 544 commands in 60+ categories (`build/top500.txt`), re-ranked live by your `~/.bash_history` / `~/.zsh_history` |
 
 ## Rebuild / extend
@@ -74,6 +81,28 @@ python3 build/build_kb.py ../tldr cmdhelp/data/kb.json.gz
 python3 build/make_pyz.py          # writes dist/cmdhelp.pyz
 sh packaging/build_rpm.sh          # writes dist/cmdhelp-<ver>-1.noarch.rpm (needs rpm-build)
 ```
+
+### Tests
+
+```sh
+python3 -m unittest discover -s tests -t .
+```
+
+The tests use stdlib `unittest` only, so they run unchanged on Python 3.6. They cover the tokenizer, the explainer
+(bundles, `ps aux`, `find -exec`, `sudo`, pipelines, redirects), ranking and history parsing, the man parser
+(GNU/BSD layouts, malformed input), cache invalidation and atomic writes, background enrichment, the completer,
+the CLI, shell snippet syntax, and the opt-in gating of the profile.d hook.
+CI (`.github/workflows/tests.yml`) runs them on every push to `main`, on Rocky 8 (Python 3.6), Rocky 9, Fedora, and Python 3.12.
+
+### Supported shell syntax
+
+The explainer understands:
+- simple commands, `VAR=x` and wrapper prefixes (`sudo`, `time`, `nohup`, `env`, `timeout`...)
+- pipes and `&&` `||` `;` `&`
+- redirections (`>`, `>>`, `<`, `2>`, `2>&1`, `&>`, here-string `<<<`)
+- quoted arguments, `--`, short-option bundles, BSD letter style (`ps aux`, `tar xzf`), and `find -exec ... \;` / `+`
+
+Process substitution `<( )`, subshells `( )`, `$( )`, and multi-line heredocs are not parsed. They don't crash; the affected tokens are shown as plain arguments.
 
 ### Releasing
 

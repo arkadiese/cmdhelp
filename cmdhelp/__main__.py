@@ -17,7 +17,7 @@ MODE_ALIASES = {"min": "min", "minimal": "min", "m": "min", "1": "min",
                 "verbose": "verbose", "v": "verbose", "full": "verbose", "3": "verbose"}
 
 SHELL_INIT = {
-    "bash": r'''# cmdhelp bash integration: Ctrl+Space (or Alt+h) opens the helper with the current line
+    "bash": r'''# cmdhelp bash integration: Ctrl+Space, Alt+h (Esc h) or Ctrl+X h opens the helper with the current line
 _cmdhelp_widget() {
   local f; f=$(mktemp "${TMPDIR:-/tmp}/cmdhelp.XXXXXX") || return
   _cmdhelp_run --result-file "$f" --initial "$READLINE_LINE" </dev/tty >/dev/tty 2>&1
@@ -26,10 +26,11 @@ _cmdhelp_widget() {
 }
 bind -x '"\C-@": _cmdhelp_widget'
 bind -x '"\eh": _cmdhelp_widget'
+bind -x '"\C-xh": _cmdhelp_widget'
 cmdexplain() { if [ $# -eq 0 ]; then _cmdhelp_run -e "$(fc -ln -2 -2 | sed 's/^[[:space:]]*//')"; else _cmdhelp_run -e "$*"; fi; }
 alias '??'='cmdexplain'
 ''',
-    "zsh": r'''# cmdhelp zsh integration: Ctrl+Space (or Alt+h) opens the helper with the current line
+    "zsh": r'''# cmdhelp zsh integration: Ctrl+Space, Alt+h (Esc h) or Ctrl+X h opens the helper with the current line
 _cmdhelp_widget() {
   local f; f=$(mktemp "${TMPDIR:-/tmp}/cmdhelp.XXXXXX") || return
   _cmdhelp_run --result-file "$f" --initial "$BUFFER" </dev/tty >/dev/tty 2>&1
@@ -40,6 +41,7 @@ _cmdhelp_widget() {
 zle -N _cmdhelp_widget
 bindkey '^@' _cmdhelp_widget
 bindkey '\eh' _cmdhelp_widget
+bindkey '^Xh' _cmdhelp_widget
 cmdexplain() { if [[ $# -eq 0 ]]; then _cmdhelp_run -e "$(fc -ln -1)"; else _cmdhelp_run -e "$*"; fi; }
 alias '??'='noglob cmdexplain'
 ''',
@@ -65,6 +67,30 @@ def _import_pt():
         return False
 
 
+def _enable_marker():
+    return os.path.join(os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config"), "cmdhelp", "enabled")
+
+
+def _toggle(on):
+    m = _enable_marker()
+    if on:
+        d = os.path.dirname(m)
+        if not os.path.isdir(d):
+            os.makedirs(d, 0o700)
+        open(m, "a").close()
+        print("cmdhelp enabled for %s. Open a new shell (bash), or run:" % os.environ.get("USER", "you"))
+        print("  bash: source /etc/profile.d/cmdhelp.sh")
+        print("  zsh:  add 'source /usr/share/cmdhelp/cmdhelp.zsh' to ~/.zshrc")
+        print("Keys: Ctrl+Space, Alt+h (or Esc then h), Ctrl+X then h.  ?? = explain last command.")
+    else:
+        try:
+            os.unlink(m)
+        except OSError:
+            pass
+        print("cmdhelp disabled for new shells. Remove any 'source .../cmdhelp.zsh' line from ~/.zshrc too.")
+    return 0
+
+
 def main(argv=None):
     p = argparse.ArgumentParser(prog="cmdhelp", description="Interactive shell command helper with explanations.",
                                 formatter_class=argparse.RawDescriptionHelpFormatter, epilog=__doc__)
@@ -73,6 +99,8 @@ def main(argv=None):
     p.add_argument("-e", "--explain", action="store_true", help="explain the given command line and exit")
     p.add_argument("-s", "--sheet", metavar="CMD", help="print a cheat sheet for CMD and exit")
     p.add_argument("--init", choices=["bash", "zsh"], help="print shell integration code")
+    p.add_argument("--enable", action="store_true", help="turn on the keybindings for your user (RPM install)")
+    p.add_argument("--disable", action="store_true", help="turn off the keybindings for your user")
     p.add_argument("--initial", default=None, help=argparse.SUPPRESS)
     p.add_argument("--result-file", default=None, help=argparse.SUPPRESS)
     p.add_argument("--no-color", action="store_true")
@@ -84,6 +112,9 @@ def main(argv=None):
         a.line.remove("--no-color"); a.no_color = True
     mode = MODE_ALIASES.get(a.mode.lower(), "normal")
     color = not a.no_color and sys.stdout.isatty() and not os.environ.get("NO_COLOR")
+
+    if a.enable or a.disable:
+        return _toggle(a.enable)
 
     if a.init:
         me = os.path.abspath(sys.argv[0])

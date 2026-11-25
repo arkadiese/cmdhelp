@@ -23,13 +23,15 @@ jobs:
     container: fedora:latest
     steps:
       - name: Tools
-        run: dnf -y install git python3 rpm-build createrepo_c
+        run: dnf -y install git python3 bash zsh rpm-build createrepo_c
       - uses: actions/checkout@v4
       - name: Version
         id: v
         run: |
           if [ "${{ github.event_name }}" = "release" ]; then V="${{ github.event.release.tag_name }}"; V="${V#v}"; else V=$(sed -n 's/^__version__ = "\(.*\)"/\1/p' cmdhelp/__init__.py); fi
           echo "version=$V" >> "$GITHUB_OUTPUT"
+      - name: Unit tests
+        run: python3 -m unittest discover -s tests -t .
       - name: Smoke test
         run: |
           python3 -m cmdhelp -e 'tar -xzvf a.tgz -C /tmp' --no-color

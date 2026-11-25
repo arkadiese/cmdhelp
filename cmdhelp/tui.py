@@ -17,7 +17,7 @@ from prompt_toolkit.layout.menus import CompletionsMenu
 from prompt_toolkit.styles import Style
 
 from .kb import MODES, PREFIX_CMDS
-from .explain import tokenize, render_text, render_command, explain
+from .explain import tokenize, split_segments, render_text, render_command, explain
 
 MODE_LABEL = {"min": "MINIMAL", "normal": "NORMAL", "verbose": "VERBOSE"}
 
@@ -27,6 +27,7 @@ class State(object):
         self.mode = mode
         self.view = "explain"     # explain | sheet | help
         self.scroll = 0
+        self.on_kb_change = None  # set to app.invalidate once the app exists
 
 
 def _real_cmd(words):
@@ -83,12 +84,14 @@ class HelperCompleter(Completer):
                                      display_meta=self._meta("[match] " + self.kb.summary(n, "normal")))
             return
 
-        entry = self.kb.get(cmd)
+        # never block typing on man(1): use what is cached, refresh in the background
+        self.kb.enrich_async(cmd, self.state.on_kb_change)
+        entry = self.kb.get(cmd, man="cached")
         sub_entry_name = None
         positional = [w for w in done[cmd_i + 1:] if not w.startswith("-")]
         if entry and positional and self.kb.has(cmd + "-" + positional[0]):
             sub_entry_name = cmd + "-" + positional[0]
-        e = self.kb.get(sub_entry_name) if sub_entry_name else entry
+        e = self.kb.get(sub_entry_name, man="cached") if sub_entry_name else entry
         if not e:
             for c in self.paths.get_completions(Document(cur, len(cur)), complete_event):
                 yield c
@@ -140,7 +143,6 @@ class HelperCompleter(Completer):
         # ---- ready-made combos: filter by keywords typed after the command ----
         keywords = [w.lower() for w in (positional + ([cur] if cur else [])) if not w.startswith("-")]
         flags_typed = [w for w in done[cmd_i + 1:] if w.startswith("-")]
-        line_start = len(text) - len(seg_text) - lead
         count = 0
         for c in e.get("combos", []):
             hay = (c["cmd"] + " " + c["normal"] + " " + " ".join(c.get("tags", []))).lower()
@@ -149,7 +151,7 @@ class HelperCompleter(Completer):
             if flags_typed and not all(f in c["cmd"] or all(ch in c["cmd"] for ch in f[1:]) for f in flags_typed):
                 continue
             count += 1
-            yield Completion(c["cmd"], start_position=-(len(text) - line_start - lead) - lead,
+            yield Completion(c["cmd"], start_position=-len(seg_text),   # replace only this pipeline segment
                              display=c["cmd"], display_meta=self._meta(c["min"] if mode == "min" else c["normal"]),
                              style="class:combo")
             if count >= 40:
@@ -199,10 +201,16 @@ def run_tui(kb, mode="normal", initial="", result_file=None):
             cmd, _ = _real_cmd(words)
             if cmd and len(words) > 1 and kb.has(cmd + "-" + words[words.index(cmd) + 1] if words.index(cmd) + 1 < len(words) else ""):
                 cmd = cmd + "-" + words[words.index(cmd) + 1]
-            txt = render_command(kb, cmd, state.mode) if cmd else ""
+            if cmd:
+                kb.enrich_async(cmd, state.on_kb_change)
+            txt = render_command(kb, cmd, state.mode, man="cached") if cmd else ""
         else:
+            for seg, sep in split_segments(tokenize(line)):   # warm man flags for every command in the pipeline
+                c, _ = _real_cmd(seg)
+                if c:
+                    kb.enrich_async(c, state.on_kb_change)
             head = ("\033[2mpreview of highlighted suggestion:\033[0m\n" if preview else "")
-            txt = head + "\033[1m$ " + line + "\033[0m\n\n" + render_text(kb, line, state.mode)
+            txt = head + "\033[1m$ " + line + "\033[0m\n\n" + render_text(kb, line, state.mode, man="cached")
         lines = txt.split("\n")
         state.scroll = max(0, min(state.scroll, len(lines) - 1))
         return ANSI("\n".join(lines[state.scroll:]))
@@ -299,6 +307,7 @@ def run_tui(kb, mode="normal", initial="", result_file=None):
 
     app = Application(layout=Layout(body, focused_element=input_win), key_bindings=kbind, style=style,
                       full_screen=False, mouse_support=False, erase_when_done=True, **io_kwargs)
+    state.on_kb_change = app.invalidate
     if initial:
         buf.start_completion(select_first=False)
     result = app.run()

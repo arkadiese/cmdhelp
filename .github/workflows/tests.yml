@@ -1,0 +1,42 @@
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  unittest:
+    name: ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    container: ${{ matrix.image }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # the real target: EL8 ships Python 3.6 as /usr/bin/python3
+          - name: Rocky 8 (python 3.6)
+            image: rockylinux:8
+            setup: dnf -y install python3 bash zsh man-db
+          - name: Rocky 9 (python 3.9)
+            image: rockylinux:9
+            setup: dnf -y install python3 bash zsh man-db
+          - name: Fedora latest
+            image: fedora:latest
+            setup: dnf -y install python3 bash zsh man-db
+          - name: Python 3.12 (Debian)
+            image: python:3.12-slim
+            setup: apt-get update -qq && apt-get install -y -qq zsh >/dev/null
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install tools
+        run: ${{ matrix.setup }}
+      - name: Python version
+        run: python3 -V
+      - name: Unit tests
+        run: python3 -m unittest discover -s tests -t . -v
+      - name: Smoke test the CLI
+        run: |
+          python3 -m cmdhelp -V
+          python3 -m cmdhelp -e 'tar -czvf x.tgz --exclude=*.log dir 2>/dev/null | wc -l' --no-color
