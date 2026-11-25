@@ -14,7 +14,7 @@ sudo dnf install cmdhelp
 Or a single RPM without adding the repo:
 
 ```sh
-sudo dnf install https://github.com/arkadiese/cmdhelp/releases/download/v0.1.0/cmdhelp-0.1.0-1.noarch.rpm
+sudo dnf install https://github.com/arkadiese/cmdhelp/releases/download/v0.2.0/cmdhelp-0.2.0-1.noarch.rpm
 ```
 
 The package installs `/usr/bin/cmdhelp` and changes nobody's shell until they opt in:
