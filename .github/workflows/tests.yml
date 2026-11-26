@@ -40,3 +40,61 @@ jobs:
         run: |
           python3 -m cmdhelp -V
           python3 -m cmdhelp -e 'tar -czvf x.tgz --exclude=*.log dir 2>/dev/null | wc -l' --no-color
+
+  # EL7 can't run current GitHub actions inside its container (glibc 2.17), so drive it with plain docker.
+  centos7:
+    name: CentOS 7 (python 3.6, bash 4.2)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - name: Unit tests on CentOS 7
+        run: |
+          docker run --rm -e GITHUB_ACTIONS -v "$PWD:/w" -w /w centos:7 bash -c '
+            set -e
+            sed -i -e "s/^mirrorlist/#mirrorlist/" -e "s|^#baseurl=http://mirror.centos.org|baseurl=http://vault.centos.org|" /etc/yum.repos.d/CentOS-*.repo
+            yum -q -y install python3 zsh man-db >/dev/null
+            python3 -V; bash --version | head -1
+            python3 tests/run_ci.py'
+
+  rpm:
+    name: Build RPM (Fedora)
+    runs-on: ubuntu-latest
+    container: fedora:latest
+    steps:
+      - uses: actions/checkout@v5
+      - run: dnf -y install python3 rpm-build
+      - run: sh packaging/build_rpm.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rpm
+          path: dist/*.rpm
+
+  rpm-install:
+    name: Install RPM on ${{ matrix.image }}
+    needs: rpm
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        image: ["centos:7", "rockylinux:8", "rockylinux:9", "fedora:latest"]
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: rpm
+      - name: Install with the native package manager and smoke test
+        run: |
+          docker run --rm -v "$PWD:/w" ${{ matrix.image }} bash -c '
+            set -e
+            if [ -f /etc/centos-release ] && grep -q " 7" /etc/centos-release; then
+              sed -i -e "s/^mirrorlist/#mirrorlist/" -e "s|^#baseurl=http://mirror.centos.org|baseurl=http://vault.centos.org|" /etc/yum.repos.d/CentOS-*.repo
+              PM=yum
+            else
+              PM=dnf
+            fi
+            $PM -q -y install /w/*.rpm
+            rpm -q cmdhelp
+            cmdhelp -V
+            cmdhelp -e "tar -xzvf a.tgz -C /tmp" --no-color | head -3
+            CMDHELP_LAST_CMD="systemctl restart nginx" CMDHELP_LAST_STATUS=1 cmdhelp -e --context --no-color | grep -q journalctl
+            bash -n /usr/share/cmdhelp/cmdhelp.bash
+            test -f /etc/profile.d/cmdhelp.sh'

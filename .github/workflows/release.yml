@@ -46,7 +46,7 @@ jobs:
         run: |
           mkdir -p site/rpm
           cp dist/*.rpm site/rpm/
-          createrepo_c site/rpm
+          createrepo_c --general-compress-type=gz site/rpm   # gz metadata: readable by EL7 yum
           cat > site/cmdhelp.repo <<'EOF'
           [cmdhelp]
           name=cmdhelp

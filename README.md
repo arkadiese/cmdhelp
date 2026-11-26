@@ -4,7 +4,7 @@ An interactive helper for shell commands. Start typing a command (`tar`, `awk`, 
 
 ## Install
 
-### Fedora / RHEL / Rocky / Alma (dnf)
+### Fedora / RHEL / Rocky / Alma / Oracle Linux / CentOS 7 (dnf or yum)
 
 ```sh
 sudo curl -fsSL -o /etc/yum.repos.d/cmdhelp.repo https://arkadiese.github.io/cmdhelp/cmdhelp.repo
@@ -16,6 +16,9 @@ Or a single RPM without adding the repo:
 ```sh
 sudo dnf install https://github.com/arkadiese/cmdhelp/releases/download/v0.2.0/cmdhelp-0.2.0-1.noarch.rpm
 ```
+
+On EL7 (CentOS 7, RHEL 7, OL7), use `yum install cmdhelp`. Python 3.6 comes along from the base repo, and the package is
+built to be readable by rpm 4.11. EL6 / OL6 ship no Python 3, so the RPM won't install there.
 
 The package installs `/usr/bin/cmdhelp` and changes nobody's shell until they opt in:
 
@@ -128,7 +131,9 @@ The tests use stdlib `unittest` only, so they run unchanged on Python 3.6. They 
 the CLI, shell snippet syntax, and the opt-in gating of the profile.d hook. They also cover the context rules,
 safe filling of file names, a guard that fails if the context code ever opens a file, and real bash/zsh sessions
 on a terminal that confirm the widget passes exit code and last command via the environment, not argv.
-CI (`.github/workflows/tests.yml`) runs them on every push to `main`, on Rocky 8 (Python 3.6), Rocky 9, Fedora, and Python 3.12.
+CI (`.github/workflows/tests.yml`) runs them on every push to `main`, on CentOS 7 (Python 3.6, bash 4.2), Rocky 8, Rocky 9,
+Fedora and Python 3.12. It also builds the RPM on Fedora and installs that exact file with yum/dnf on CentOS 7, Rocky 8,
+Rocky 9 and Fedora.
 
 ### Supported shell syntax
 

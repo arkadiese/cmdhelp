@@ -1,4 +1,10 @@
 %{!?pkg_version: %global pkg_version 0.3.0}
+# Install on EL7 (rpm 4.11) and newer: Fedora's default zstd payload is unreadable for rpm < 4.14,
+# so force gzip and SHA-256 file digests no matter which distro builds the package.
+%global _binary_payload w9.gzdio
+%global _source_payload w9.gzdio
+%global _binary_filedigest_algorithm 8
+%global _source_filedigest_algorithm 8
 
 Name:           cmdhelp
 Version:        %{pkg_version}
@@ -13,7 +19,6 @@ Source3:        cmdhelp.zsh
 BuildArch:      noarch
 
 Requires:       /usr/bin/python3
-Recommends:     man-db
 Provides:       bundled(python3-prompt-toolkit) = 3.0.36
 Provides:       bundled(python3-wcwidth) = 0.2.13
 
@@ -61,6 +66,7 @@ chmod 0755 %{buildroot}%{_bindir}/cmdhelp
 - ?? with no arguments explains the previous command, its exit status and what to try next
 - Context is passed to the helper via environment, never argv (not visible in ps)
 - Typo fixes for "command not found" (sl -> ls), limited to installed commands
+- Installs on EL7: gzip payload + SHA-256 digests instead of Fedora's zstd default
 
 * Wed Nov 25 2026 Arkasha <arkadiese@users.noreply.github.com> - 0.2.0-1
 - Keybindings are now opt-in per user (cmdhelp --enable) or via /etc/cmdhelp/enable-all
