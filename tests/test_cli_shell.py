@@ -4,6 +4,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 
 import tests
@@ -148,3 +149,108 @@ class ProfileGatingTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def _pty_shell(argv, script, env, timeout=15):
+    """Run `script` in an interactive shell that owns a real controlling terminal (like a user's
+    session, so </dev/tty works). Returns the shell's exit status."""
+    import pty
+    import select
+    pid, master = pty.fork()
+    if pid == 0:                                   # child: becomes session leader with the pty as ctty
+        try:
+            os.execvpe(argv[0], argv + [script], env)
+        finally:
+            os._exit(127)
+    deadline = time.time() + timeout
+    status = None
+    try:
+        while time.time() < deadline:              # drain output so the shell never blocks
+            r, _, _ = select.select([master], [], [], 0.2)
+            if r:
+                try:
+                    os.read(master, 4096)
+                except OSError:                    # EIO: the shell closed the terminal (exited)
+                    pass
+            done, st = os.waitpid(pid, os.WNOHANG)
+            if done:
+                status = st
+                break
+        if status is None:                         # hung: kill and report
+            os.kill(pid, 9)
+            os.waitpid(pid, 0)
+            return -1
+        return os.WEXITSTATUS(status) if os.WIFEXITED(status) else -1
+    finally:
+        os.close(master)
+
+
+class WidgetContextTest(unittest.TestCase):
+    """The real widget must hand last command, exit status and current line to the helper via the
+    ENVIRONMENT, never on the command line (argv is visible to every user in `ps`)."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.out = os.path.join(self.tmp, "seen")
+        self.env = {"HOME": self.tmp, "PATH": os.environ.get("PATH", "/usr/bin:/bin"), "TERM": "dumb",
+                    "HISTFILE": os.path.join(self.tmp, "hist"), "OUT": self.out}
+        # stub replaces the real helper: records what it received
+        self.stub = ('_cmdhelp_run() { { printf "ARGV:%s\\n" "$*"; env | grep "^CMDHELP_"; } > "$OUT"; '
+                     'printf "picked line" > "${2}"; }; ')
+
+    def tearDown(self):
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def seen(self):
+        with open(self.out) as fh:
+            return fh.read()
+
+    def check(self, text):
+        self.assertIn("CMDHELP_LAST_STATUS=2", text)
+        self.assertIn("CMDHELP_LAST_CMD=tar -xzf secret-pass.tgz", text)
+        self.assertIn("CMDHELP_LINE=half typed", text)
+        argv = [l for l in text.splitlines() if l.startswith("ARGV:")][0]
+        self.assertNotIn("secret-pass", argv)        # last command NOT on argv
+        self.assertNotIn("half typed", argv)
+
+    def test_bash(self):
+        snippet = os.path.join(PKG, "cmdhelp.bash")
+        script = ('set -o history; . "%s" 2>/dev/null; %s history -s "tar -xzf secret-pass.tgz"; '
+                  'READLINE_LINE="half typed"; (exit 2); _cmdhelp_widget; '
+                  '[ "$READLINE_LINE" = "picked line" ] && exit 0 || exit 9' % (snippet, self.stub))
+        rc = _pty_shell(["bash", "--norc", "--noprofile", "-i", "-c"], script, self.env)
+        self.check(self.seen())
+        self.assertEqual(rc, 0, "picked line was not put back into READLINE_LINE")
+
+    @unittest.skipUnless(shutil.which("zsh"), "zsh missing")
+    def test_zsh(self):
+        snippet = os.path.join(PKG, "cmdhelp.zsh")
+        # zle widgets can't be invoked outside the line editor, so call the function body directly
+        script = ('. "%s" 2>/dev/null; %s print -s "tar -xzf secret-pass.tgz"; zle() { :; }; '
+                  'BUFFER="half typed"; (exit 2); _cmdhelp_widget; '
+                  '[[ "$BUFFER" == "picked line" ]] && exit 0 || exit 9' % (snippet, self.stub))
+        rc = _pty_shell(["zsh", "-f", "-i", "-c"], script, self.env)
+        self.check(self.seen())
+        self.assertEqual(rc, 0)
+
+
+class PackagedSnippetSyncTest(unittest.TestCase):
+    def test_packaging_files_match_generator(self):
+        for sh in ("bash", "zsh"):
+            gen = run(["--init-static", sh]).stdout
+            with open(os.path.join(PKG, "cmdhelp." + sh)) as fh:
+                self.assertEqual(fh.read(), gen, "packaging/cmdhelp.%s is stale: python3 -m cmdhelp --init-static %s > packaging/cmdhelp.%s" % (sh, sh, sh))
+
+
+class ContextCLITest(unittest.TestCase):
+    def test_explain_with_context(self):
+        r = run(["-e", "--context"], env={"CMDHELP_LAST_CMD": "systemctl restart nginx", "CMDHELP_LAST_STATUS": "1"})
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("systemctl", r.stdout)
+        self.assertIn("exit 1", r.stdout)
+        self.assertIn("journalctl -xeu nginx", r.stdout)
+
+    def test_context_alone(self):
+        r = run(["--context"])
+        self.assertEqual(r.returncode, 0, r.stderr)
+        self.assertIn("Here:", r.stdout)

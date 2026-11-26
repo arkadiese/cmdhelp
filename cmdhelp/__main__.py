@@ -16,24 +16,49 @@ MODE_ALIASES = {"min": "min", "minimal": "min", "m": "min", "1": "min",
                 "normal": "normal", "n": "normal", "2": "normal",
                 "verbose": "verbose", "v": "verbose", "full": "verbose", "3": "verbose"}
 
+# Shell integration. Context goes to the helper through the ENVIRONMENT of a subshell (not argv,
+# so the last command line, which may contain a password, never shows up in `ps`):
+#   CMDHELP_LAST_CMD     last history entry        (fc -ln -1)
+#   CMDHELP_LAST_STATUS  its exit status           ($?)
+#   CMDHELP_LINE         what is typed right now
+# Command OUTPUT is never captured.
 SHELL_INIT = {
-    "bash": r'''# cmdhelp bash integration: Ctrl+Space, Alt+h (Esc h) or Ctrl+X h opens the helper with the current line
+    "bash": r"""# cmdhelp bash integration: Ctrl+Space, Alt+h (Esc h) or Ctrl+X h opens the helper with the current line.
+# The helper gets the last command, its exit status and the current line via the environment. Output is never read.
 _cmdhelp_widget() {
-  local f; f=$(mktemp "${TMPDIR:-/tmp}/cmdhelp.XXXXXX") || return
-  _cmdhelp_run --result-file "$f" --initial "$READLINE_LINE" </dev/tty >/dev/tty 2>&1
+  local st=$? f last
+  last=$(fc -ln -1 2>/dev/null | sed 's/^[[:space:]]*//')
+  f=$(mktemp "${TMPDIR:-/tmp}/cmdhelp.XXXXXX") || return
+  ( export CMDHELP_LAST_STATUS="$st" CMDHELP_LAST_CMD="$last" CMDHELP_LINE="$READLINE_LINE"
+    _cmdhelp_run --result-file "$f" </dev/tty >/dev/tty 2>&1 )
   if [ -s "$f" ]; then READLINE_LINE=$(cat "$f"); READLINE_POINT=${#READLINE_LINE}; fi
   rm -f "$f"
 }
 bind -x '"\C-@": _cmdhelp_widget'
 bind -x '"\eh": _cmdhelp_widget'
 bind -x '"\C-xh": _cmdhelp_widget'
-cmdexplain() { if [ $# -eq 0 ]; then _cmdhelp_run -e "$(fc -ln -2 -2 | sed 's/^[[:space:]]*//')"; else _cmdhelp_run -e "$*"; fi; }
+# ?? <line> explains a line; ?? alone explains the previous command, its exit status and what to try next
+cmdexplain() {
+  local st=$?
+  if [ $# -eq 0 ]; then
+    ( export CMDHELP_LAST_STATUS="$st" CMDHELP_LAST_CMD="$(fc -ln -2 -2 | sed 's/^[[:space:]]*//')"
+      _cmdhelp_run -e --context )
+  else
+    _cmdhelp_run -e "$*"
+  fi
+}
 alias '??'='cmdexplain'
-''',
-    "zsh": r'''# cmdhelp zsh integration: Ctrl+Space, Alt+h (Esc h) or Ctrl+X h opens the helper with the current line
+""",
+    "zsh": r"""# cmdhelp zsh integration: Ctrl+Space, Alt+h (Esc h) or Ctrl+X h opens the helper with the current line.
+# The helper gets the last command, its exit status and the current line via the environment. Output is never read.
+[[ -n ${_CMDHELP_LOADED:-} ]] && return 0
+_CMDHELP_LOADED=1
 _cmdhelp_widget() {
-  local f; f=$(mktemp "${TMPDIR:-/tmp}/cmdhelp.XXXXXX") || return
-  _cmdhelp_run --result-file "$f" --initial "$BUFFER" </dev/tty >/dev/tty 2>&1
+  local st=$? f last
+  last=$(fc -ln -1 2>/dev/null)
+  f=$(mktemp "${TMPDIR:-/tmp}/cmdhelp.XXXXXX") || return
+  ( export CMDHELP_LAST_STATUS="$st" CMDHELP_LAST_CMD="$last" CMDHELP_LINE="$BUFFER"
+    _cmdhelp_run --result-file "$f" </dev/tty >/dev/tty 2>&1 )
   if [[ -s $f ]]; then BUFFER=$(<"$f"); CURSOR=${#BUFFER}; fi
   rm -f "$f"
   zle reset-prompt
@@ -42,10 +67,20 @@ zle -N _cmdhelp_widget
 bindkey '^@' _cmdhelp_widget
 bindkey '\eh' _cmdhelp_widget
 bindkey '^Xh' _cmdhelp_widget
-cmdexplain() { if [[ $# -eq 0 ]]; then _cmdhelp_run -e "$(fc -ln -1)"; else _cmdhelp_run -e "$*"; fi; }
-alias '??'='noglob cmdexplain'
-''',
+# ?? <line> explains a line; ?? alone explains the previous command, its exit status and what to try next
+cmdexplain() {
+  local st=$?
+  if [[ $# -eq 0 ]]; then
+    ( export CMDHELP_LAST_STATUS="$st" CMDHELP_LAST_CMD="$(fc -ln -1)"
+      _cmdhelp_run -e --context )
+  else
+    _cmdhelp_run -e "$*"
+  fi
 }
+alias '??'='noglob cmdexplain'
+""",
+}
+STATIC_RUN = '_cmdhelp_run() { /usr/bin/cmdhelp "$@"; }\n'
 
 
 def _import_pt():
@@ -99,6 +134,9 @@ def main(argv=None):
     p.add_argument("-e", "--explain", action="store_true", help="explain the given command line and exit")
     p.add_argument("-s", "--sheet", metavar="CMD", help="print a cheat sheet for CMD and exit")
     p.add_argument("--init", choices=["bash", "zsh"], help="print shell integration code")
+    p.add_argument("--init-static", choices=["bash", "zsh"], help=argparse.SUPPRESS)   # RPM: /usr/share/cmdhelp/*
+    p.add_argument("-c", "--context", action="store_true",
+                   help="show suggestions from the last command, its exit status and the current folder")
     p.add_argument("--enable", action="store_true", help="turn on the keybindings for your user (RPM install)")
     p.add_argument("--disable", action="store_true", help="turn off the keybindings for your user")
     p.add_argument("--initial", default=None, help=argparse.SUPPRESS)
@@ -116,6 +154,10 @@ def main(argv=None):
     if a.enable or a.disable:
         return _toggle(a.enable)
 
+    if a.init_static:
+        sys.stdout.write(STATIC_RUN + SHELL_INIT[a.init_static])
+        return 0
+
     if a.init:
         me = os.path.abspath(sys.argv[0])
         if me.endswith(".pyz") or os.path.isfile(me) and not me.endswith("__main__.py"):
@@ -127,8 +169,10 @@ def main(argv=None):
         return 0
 
     from .kb import KB
+    from .context import Context, render_context
     kb = KB()
     line = " ".join(a.line).strip()
+    ctx = Context.from_env()
 
     if a.sheet:
         from .explain import render_command
@@ -136,17 +180,28 @@ def main(argv=None):
         return 0
     if a.explain:
         from .explain import render_text
-        if not line:
+        if not line and a.context:
+            line = ctx.last_cmd or ""
+        elif not line:
             line = sys.stdin.read().strip()
-        print(render_text(kb, line, mode, color))
+        if line:
+            print(render_text(kb, line, mode, color))
+        if a.context:
+            print(("\n" if line else "") + render_context(ctx, kb, color))
+        return 0
+    if a.context and not line:
+        print(render_context(ctx, kb, color))
         return 0
 
     if not _import_pt():
         sys.stderr.write("prompt_toolkit unavailable; falling back to explain mode. Use: cmdhelp -e '<command>'\n")
         return 1
     from .tui import run_tui
-    initial = a.initial if a.initial is not None else line
-    r = run_tui(kb, mode, initial, a.result_file)
+    if a.initial is not None:
+        initial = a.initial
+    else:
+        initial = line or os.environ.get("CMDHELP_LINE", "")
+    r = run_tui(kb, mode, initial, a.result_file, ctx)
     return 0 if r else 1
 
 

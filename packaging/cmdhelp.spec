@@ -1,4 +1,4 @@
-%{!?pkg_version: %global pkg_version 0.2.0}
+%{!?pkg_version: %global pkg_version 0.3.0}
 
 Name:           cmdhelp
 Version:        %{pkg_version}
@@ -53,6 +53,15 @@ chmod 0755 %{buildroot}%{_bindir}/cmdhelp
 %dir %{_sysconfdir}/cmdhelp
 
 %changelog
+* Thu Nov 26 2026 Arkasha <arkadiese@users.noreply.github.com> - 0.3.0-1
+- Context-aware suggestions from the last command, its exit status and the current directory
+  (fix ideas after a failure, next steps after success, files in this folder); output is never read
+- Exit codes explained per command (curl 7, grep 1, rsync 23, 137 = OOM kill...)
+- Use cases get real file names from the current directory filled in (never output files)
+- ?? with no arguments explains the previous command, its exit status and what to try next
+- Context is passed to the helper via environment, never argv (not visible in ps)
+- Typo fixes for "command not found" (sl -> ls), limited to installed commands
+
 * Wed Nov 25 2026 Arkasha <arkadiese@users.noreply.github.com> - 0.2.0-1
 - Keybindings are now opt-in per user (cmdhelp --enable) or via /etc/cmdhelp/enable-all
 - Ctrl+X h fallback key for terminals that swallow Ctrl+Space/Alt (MobaXterm, PuTTY)

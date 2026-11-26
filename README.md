@@ -43,7 +43,8 @@ For a server where you don't want to install anything, copy only `cmdhelp.pyz` (
 | **Ctrl+Space**, **Alt+h** (or **Esc** then **h**), **Ctrl+X** then **h** in bash/zsh | Opens the helper with whatever you already typed. Ctrl+X h works in terminals that swallow the others (MobaXterm, PuTTY). |
 | `cmdhelp` | Opens the helper standalone (prints the chosen line) |
 | `?? <command line>` | Explains a command line token by token |
-| `??` (no args) | Explains your previous command |
+| `??` (no args) | Explains your previous command, what its exit code means, and what to try next |
+| `cmdhelp --context` | Just the suggestions for where you are and what you last ran |
 | `cmdhelp -s tar` | Cheat sheet for a command |
 | `cmdhelp -m verbose ...` | Picks a mode (`min`, `normal`, `verbose`; or set `CMDHELP_MODE`) |
 
@@ -57,6 +58,39 @@ Inside the helper:
 - **F2** cycles the mode (minimal, normal, verbose). **F3** shows the cheat sheet. **F1** shows help. **PgUp/PgDn** scroll. **Esc** quits.
 
 Nothing is ever executed. The helper only edits your prompt line.
+
+## Context: it knows what you just did
+
+When you open the helper on an empty line, it starts from three things the shell already knows:
+- **The last command and its exit code:**
+  - after a failure: `[fix]` suggestions, picked by what failed and how (exit code)
+  - after a success: `[next]` steps
+- **The current directory:** `[here]` suggestions for the files in it.
+
+| You just ran | Exit | It offers |
+|---|---|---|
+| `tar -xzf backup.tgz` | 2 | `file backup.tgz` (gzip, xz, or an HTML error page?), `tar -tvf backup.tgz \| head` |
+| `curl https://api.example.com` | 7 | `nc -zv -w3 api.example.com 443`, `ip route get ...`, `curl -sSv ...` |
+| `curl https://...` | 60 | `openssl s_client ... \| openssl x509 -noout -dates -issuer` |
+| `systemctl restart nginx` | 1 | `systemctl status nginx -l --no-pager`, `journalctl -xeu nginx` |
+| `ssh -p 2222 root@10.0.0.5` | 255 | `ssh -vvv -p 2222 ...`, `nc -zv 10.0.0.5 2222` |
+| `grep a.b conf` | 1 | it says "no match is not an error", then `grep -i`, `grep -rn`, `grep -F` |
+| `sl -la` | 127 | `ls -la` (only commands installed on this box) |
+| `make` | 137 | "killed by SIGKILL, often the OOM killer", then `dmesg -T \| grep -i 'killed process'` |
+| `sqlplus / as sysdba` | 1 | `echo $ORACLE_HOME $ORACLE_SID`, `lsnrctl status`, `ps -ef \| grep [p]mon_` |
+| `vim /etc/ssh/sshd_config` | 0 | `sshd -t` (check before you restart and lock yourself out) |
+| `firewall-cmd --add-port=8080/tcp` | 0 | `firewall-cmd --runtime-to-permanent` |
+| `wget .../pkg.tar.gz` | 0 | `tar -tvf pkg.tar.gz`, `sha256sum`, `file` |
+
+Ready-made use cases marked `*` have real file names from the current folder filled in:
+`tar -xzvf archive.tar.gz` becomes `tar -xzvf backup-2026-11-25.tgz`.
+Names the command would **write** (`tar -czf OUT`, `zip OUT`, `-o`, `-w`, `> file`) are never filled, so a suggestion can't overwrite an existing file.
+
+**What it does not do:** it never reads command output or file contents, and it records nothing. It looks only at:
+- names, sizes and dates in the current folder (at most 400 entries)
+- the last command and its exit code
+
+The shell passes these in environment variables of a short-lived subshell, never as arguments, so a password in your last command doesn't show up in `ps`.
 
 ## Modes
 
@@ -91,7 +125,9 @@ python3 -m unittest discover -s tests -t .
 The tests use stdlib `unittest` only, so they run unchanged on Python 3.6. They cover the tokenizer, the explainer
 (bundles, `ps aux`, `find -exec`, `sudo`, pipelines, redirects), ranking and history parsing, the man parser
 (GNU/BSD layouts, malformed input), cache invalidation and atomic writes, background enrichment, the completer,
-the CLI, shell snippet syntax, and the opt-in gating of the profile.d hook.
+the CLI, shell snippet syntax, and the opt-in gating of the profile.d hook. They also cover the context rules,
+safe filling of file names, a guard that fails if the context code ever opens a file, and real bash/zsh sessions
+on a terminal that confirm the widget passes exit code and last command via the environment, not argv.
 CI (`.github/workflows/tests.yml`) runs them on every push to `main`, on Rocky 8 (Python 3.6), Rocky 9, Fedora, and Python 3.12.
 
 ### Supported shell syntax

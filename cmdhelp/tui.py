@@ -18,13 +18,15 @@ from prompt_toolkit.styles import Style
 
 from .kb import MODES, PREFIX_CMDS
 from .explain import tokenize, split_segments, render_text, render_command, explain
+from .context import Context, suggestions as ctx_suggestions, fill as ctx_fill, render_context
 
 MODE_LABEL = {"min": "MINIMAL", "normal": "NORMAL", "verbose": "VERBOSE"}
 
 
 class State(object):
-    def __init__(self, mode):
+    def __init__(self, mode, ctx=None):
         self.mode = mode
+        self.ctx = ctx or Context()
         self.view = "explain"     # explain | sheet | help
         self.scroll = 0
         self.on_kb_change = None  # set to app.invalidate once the app exists
@@ -62,6 +64,14 @@ class HelperCompleter(Completer):
         done = words if cur == "" else words[:-1]
         cmd, cmd_i = _real_cmd(done)
         mode = self.state.mode
+
+        # ---- empty line: what the shell context suggests (last command, exit code, this folder) ----
+        if not text.strip():
+            kind_tag = {"fix": "fix", "next": "next", "here": "here"}
+            for sg in ctx_suggestions(self.state.ctx, self.kb, limit=14):
+                yield Completion(sg["cmd"], start_position=0, display=sg["cmd"],
+                                 display_meta=self._meta("[%s] %s" % (kind_tag[sg["kind"]], sg["why"])),
+                                 style="class:ctx")
 
         # ---- typing the command name ----
         if cmd is None:
@@ -151,8 +161,10 @@ class HelperCompleter(Completer):
             if flags_typed and not all(f in c["cmd"] or all(ch in c["cmd"] for ch in f[1:]) for f in flags_typed):
                 continue
             count += 1
-            yield Completion(c["cmd"], start_position=-len(seg_text),   # replace only this pipeline segment
-                             display=c["cmd"], display_meta=self._meta(c["min"] if mode == "min" else c["normal"]),
+            line, filled = ctx_fill(c["cmd"], self.state.ctx)      # real file names from this folder
+            meta = c["min"] if mode == "min" else c["normal"]
+            yield Completion(line, start_position=-len(seg_text),     # replace only this pipeline segment
+                             display=line, display_meta=self._meta(("* " if filled else "") + meta),
                              style="class:combo")
             if count >= 40:
                 break
@@ -164,6 +176,9 @@ class HelperCompleter(Completer):
 
 HELP = """<b>cmdhelp</b>  interactive shell command helper
 
+  Open on an empty line: suggestions from your last command, its exit code and this folder
+     ([fix] after a failure, [next] after success, [here] for files in this directory).
+     Use cases marked * have real file names from this folder filled in.
   Type a command name: ranked suggestions (your shell history first, then the top-500 list).
   Type a word that is not a command (e.g. <i>compress</i>, <i>firewall</i>): matching commands.
   After the command:
@@ -178,8 +193,8 @@ HELP = """<b>cmdhelp</b>  interactive shell command helper
 """
 
 
-def run_tui(kb, mode="normal", initial="", result_file=None):
-    state = State(mode)
+def run_tui(kb, mode="normal", initial="", result_file=None, ctx=None):
+    state = State(mode, ctx)
     completer = HelperCompleter(kb, state)
     buf = Buffer(completer=completer, complete_while_typing=True, multiline=False,
                  document=Document(initial, len(initial)))
@@ -194,6 +209,9 @@ def run_tui(kb, mode="normal", initial="", result_file=None):
             return HTML(HELP)
         line, preview = current_target_line()
         if not line:
+            if state.ctx.last_cmd or ctx_suggestions(state.ctx, kb, limit=1):
+                return ANSI(render_context(state.ctx, kb, color=True, limit=10) +
+                            "\n\n\033[2mTab/arrows pick a suggestion, or just start typing a command. F1 help.\033[0m")
             top = [n for n, _ in kb.history.most_common(12) if kb.has(n)] or kb.rank[:12]
             return ANSI("\033[2mStart typing a command (F1 for help). Your most used: \033[0m\033[1;36m" + "  ".join(top) + "\033[0m")
         if state.view == "sheet":
@@ -251,7 +269,7 @@ def run_tui(kb, mode="normal", initial="", result_file=None):
         cs = buf.complete_state
         if cs and cs.current_completion:
             c = cs.current_completion
-            is_combo = "combo" in (c.style or "")
+            is_combo = "combo" in (c.style or "") or "ctx" in (c.style or "")
             buf.apply_completion(c)
             if is_combo:   # a whole ready-made line: hand it to the shell prompt
                 event.app.exit(result=buf.text.strip())
@@ -290,7 +308,7 @@ def run_tui(kb, mode="normal", initial="", result_file=None):
         "completion-menu.completion.current": "bg:#005f87 #ffffff bold",
         "completion-menu.meta.completion": "bg:#1c1c1c #8a8a8a",
         "completion-menu.meta.completion.current": "bg:#005f87 #ffffff",
-        "combo": "#87d7ff", "sub": "#d7af5f", "used": "#6c6c6c",
+        "combo": "#87d7ff", "sub": "#d7af5f", "used": "#6c6c6c", "ctx": "#afd787",
     })
 
     io_kwargs = {}
@@ -308,8 +326,8 @@ def run_tui(kb, mode="normal", initial="", result_file=None):
     app = Application(layout=Layout(body, focused_element=input_win), key_bindings=kbind, style=style,
                       full_screen=False, mouse_support=False, erase_when_done=True, **io_kwargs)
     state.on_kb_change = app.invalidate
-    if initial:
-        buf.start_completion(select_first=False)
+    if initial or ctx_suggestions(state.ctx, kb, limit=1):
+        buf.start_completion(select_first=False)      # open the menu right away
     result = app.run()
     for f in (tty_in, tty_out):
         if f:
